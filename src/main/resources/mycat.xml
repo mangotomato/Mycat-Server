@@ -9,7 +9,7 @@
 			<property name="charset">utf8</property>
 		</system>
 		<user name="root">
-			<property name="password">lexin112358</property>
+			<property name="password">lijh17808</property>
 			<property name="schemas">TESTDB</property>
 		</user>
     </server-config>
@@ -17,7 +17,38 @@
     <schema-config>
 		<schema name="TESTDB" checkSQLschema="false" sqlMaxLimit="100">
 			<!-- auto sharding by id (long) -->
-			<table name="travelrecord" dataNode="dn1,dn2,dn3" rule="auto-sharding-long" />
+			
+			<!-- 
+				name：逻辑表的名称，这个名称和在数据库中执行create table 的名称一致，同个schema中table name必须唯一
+				dataNode:逻辑表所属的dataNode
+				rule:逻辑表使用的规则名称
+				ruleRequired:如果没有指定分片规则，抛出异常
+				primaryKey:逻辑表对应真是表的主键。如果按照非主键进行分片，那么会在所有dataNode上发sql。
+					如果配置了该属性，则会缓存主键和具体DN的信息，那么再次使用非主键进行查询的时候，直接在指定的dataNode上按主键进行查询。
+				type:定义逻辑表的类型，有逻辑表和全局表
+				autoIncrement:
+					"true":指定表使用自增长主键，这样mycat不会抛出分片键找不到异常
+					“false”:默认值。禁用该功能。
+					
+				needAddLimit:  (true,false)
+					默认查询limit 100;
+				
+			 -->
+			<table name="travelrecord" dataNode="dn1,dn2,dn3" rule="auto-sharding-long" needAddLimit="100"/><!-- dataNode="dn$1-3" -->
+			
+			
+			<!-- 
+				childTable用于定义E-R分片的字表；
+				name:子表的名称
+				joinKey：插入子表的时候使用这个列的值查找父表存储的数据节点
+				
+				parentKey:
+					属性指定的值一般为不父表建立关联关系的列名。程序首先通过 joinkey 的值，再通过 parentKey 属性指定
+				的列名产生查询语句，通过执行该语句得到父表存储在哪个分片上。从而确定字表存储的位置。
+				
+				needAddLimit：(true,false)
+					默认查询limit 100;
+			 -->
 			<!-- 
 			<table name="company" primaryKey="id" dataNode="dn1,dn2,dn3" rule="sharding-by-mod"/>
 			<table name="customer" primaryKey="ID" dataNode="dn1,dn2" rule="sharding-by-enum">
@@ -28,16 +59,72 @@
 		 -->
 		</schema>
 
+
+		<!-- 
+			dataNode定义了MyCat中的数据节点，也就是通常所说的数据分片。一个dataNode就是一个独立的数据分片。
+			name属性：
+				唯一标识数据节点。我们需要在table标签上设置节点集合，来建立水平拆分后，表分散到的分片的关系。
+			dataHost属性：
+				标识分片属于哪个数据库实例
+			database属性：
+				定义该分片属性属于那个具体数据库实例上的具体库，这里使用两个维度来定义分片，实例+具体的库。
+		
+		 -->
+		 
+		 
+		<!-- 使用名字为localhost1数据库实例上的db1物理数据库，这就组成了一个分片，最后，我们使用名字db1作为该分片的标识 -->
 		<dataNode name="dn1" dataHost="localhost1" database="db1" />
 		<dataNode name="dn2" dataHost="localhost1" database="db2" />
 		<dataNode name="dn3" dataHost="localhost1" database="db3" />
-
+			
+		<!-- 
+			name:唯一标识dataHost
+			maxCon:指定每个读写实例连接池的最大连接。标签内嵌的writeHost、readHost标签都会使用这个属性值来实例化出连接池的最大连接数
+			minCon:连接池的最先连接数，初始化连接池的大小
+			balance:
+				负载均衡参数
+				"0":不开启读写分离机制，所有读操作都发送到当前可用的writeHost节点上
+				"1":全部的readHost和stand by writeHost参与select语句的负载均衡，简单来说，当双主双从模式（M1->S1,M2->S2,并且M1和M2互为主备)，正常情况下，M2，S1，S2都参与select语句的负载均衡
+				"2":所有的读操作随机在readHost和writeHost上分发
+				"3":所有读操作都在writeHost对应的readHost上，writerHost不负担读压力，注意balance=3设置选项since1.4开始支持				
+				
+			writeType:
+				负载均衡参数：
+				"0":所有写操作发送到配置的第一个writeHost，第一个挂了切到第二个writeHost，重新启动后以切换后的为准，切换记录在配置文件dnindex.properties
+				“1”：所有写操作随机发送到writeHost，1.5以后废弃不推荐
+			dbType:
+				数据库类型。目前支持二进制mysql协议，其它还有使用jdbc连接的数据库，如mongodb,oracle,spark etc.
+				
+			dbDriver:
+				指定连接后台数据库使用的Driver，目前可选的值有native和jdbc。
+				native:使用二进制mysql协议，所以可以使用mysql和maridb。
+				其它类型数据库需要jdbc驱动来支持。
+			
+			switchType属性：
+				"-1":标识不自动切换
+				“1”：默认值，自动切换
+				“2”：基于Mysql主从同步关系决定是否切换
+					心跳语句为show slave status
+				“3”：基于mysql galary cluster的切换机制（适合集群）（1.4.1）
+					心跳语句为show status like ‘wsrep%‘
+				
+			tempReadHostAvailable属性：
+				如果配置了这个属性，writeHost下面的readHost仍旧可用。默认为0（0，1）
+		 -->
 		<dataHost name="localhost1" maxCon="1000" minCon="10" balance="0"
-			writeType="0" dbType="mysql" dbDriver="native" switchType="1" slaveThreshold="100">
-			<heartbeat>select user()</heartbeat>
+			writeType="0" dbType="mysql" dbDriver="native" switchType="1" tempReadHostAvailable="0"
+			slaveThreshold="100">
+			<heartbeat>select user()</heartbeat><!-- mysql心跳语句 --><!--oracle心跳语句 <heartbeat>select 1 from dual</heartbeat> -->
 			<!-- can have multi write hosts -->
-			<writeHost host="hostM1" url="localhost:3306" user="root" password="lexin112358">
+			<writeHost host="hostM1" url="localhost:3306" user="root" password="lijh17808">
 				<!-- can have multi read hosts -->
+				
+				<!-- 
+				
+				weight:readHost中作为读节点的权重（since 1.4）
+				usingDecrypt：是否对密码加密（since 1.4),默认是0，如果需要开启则设置为1
+				
+				 -->
 				<readHost host="hostS1" url="192.168.1.200:3306" user="root" password="digdeep" />
 			</writeHost>
 		</dataHost>
